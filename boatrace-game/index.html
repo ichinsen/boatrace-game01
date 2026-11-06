@@ -11,7 +11,7 @@
     <!-- ヘッダー（管理画面へのリンクは一切ありません） -->
     <header class="app-header">
       <h1 class="app-title">🚤 ボートレース予想ゲーム</h1>
-      <p class="app-subtitle">2連単を当てて高配当ポイントを掴み取れ！</p>
+      <p class="app-subtitle">1レース500pt！100pt単位で自由に投票して高配当を掴み取れ！</p>
     </header>
 
     <!-- 接続状態バナー -->
@@ -110,10 +110,28 @@
         </div>
       </div>
 
+      <!-- 投票ポイント（100pt単位） -->
+      <div class="stake-box">
+        <div class="form-label">💰 投票ポイント（100pt単位）</div>
+        <div class="stake-row">
+          <button type="button" id="unitMinus" class="stake-btn" aria-label="減らす">−</button>
+          <div class="stake-value"><span id="stakeValue">100</span><span class="stake-unit"> pt</span></div>
+          <button type="button" id="unitPlus" class="stake-btn" aria-label="増やす">＋</button>
+        </div>
+        <div class="stake-budget" id="budgetText">このレースの持ちポイント：残り 500 / 500 pt</div>
+        <div class="stake-bar"><div class="stake-bar-fill" id="budgetBar" style="width: 100%;"></div></div>
+      </div>
+
       <!-- 投票ボタン -->
       <button id="submitVoteBtn" class="btn-primary" disabled>
         <span>📝</span> この内容で投票する！
       </button>
+
+      <!-- このレースの投票済み一覧 -->
+      <div id="myBetsBox" class="my-bets-box" style="display: none;">
+        <div class="my-bets-title" id="myBetsTitle">このレースの投票</div>
+        <div id="myBetsList"></div>
+      </div>
 
       <div id="voteMessage" style="margin-top: 10px; font-size: 0.85rem; text-align: center; color: #ef4444; font-weight: 600;"></div>
     </div>

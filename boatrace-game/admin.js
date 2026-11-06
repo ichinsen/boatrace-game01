@@ -7,6 +7,12 @@ const KEY_VOTES = 'boatrace_p2p_votes';
 const KEY_HOST = 'boatrace_host_id';
 const KEY_BASE = 'boatrace_custom_base_url';
 const RACES = [5, 6, 7];
+// 1レースあたりの持ちポイントと、投票の最小単位（100pt = 2連単1口 = 100円券）
+const POINTS_PER_RACE = 500;
+const BET_UNIT = 100;
+const MAX_UNITS = POINTS_PER_RACE / BET_UNIT;
+// 旧データ（口数なし）は1口として扱う
+const unitsOf = v => (Number.isInteger(v.units) && v.units > 0) ? v.units : 1;
 
 const $ = id => document.getElementById(id);
 const blankResult = () => ({ first: null, second: null, payout: 0, settled: false, settledAt: '' });
@@ -60,6 +66,7 @@ const proxyUser = $('proxyUser');
 const proxyPin = $('proxyPin');
 const proxyFirst = $('proxyFirst');
 const proxySecond = $('proxySecond');
+const proxyUnits = $('proxyUnits');
 const proxyVoteBtn = $('proxyVoteBtn');
 const rankingTableBody = $('rankingTableBody');
 const adminResetBtn = $('adminResetBtn');
@@ -152,9 +159,9 @@ function csvPin(p) {
 }
 
 function buildVotesCsv() {
-  let c = '投票日時,レース番号,ニックネーム,PASS番号,予想1着,予想2着,買い目\r\n';
+  let c = '投票日時,レース番号,ニックネーム,PASS番号,予想1着,予想2着,買い目,口数,投票pt\r\n';
   votesList.forEach(v => {
-    c += [csvCell(v.time), csvCell(v.race + 'R'), csvCell(v.user, true), csvPin(v.pin), v.first, v.second, csvCell(v.bet)].join(',') + '\r\n';
+    c += [csvCell(v.time), csvCell(v.race + 'R'), csvCell(v.user, true), csvPin(v.pin), v.first, v.second, csvCell(v.bet), unitsOf(v), unitsOf(v) * BET_UNIT].join(',') + '\r\n';
   });
   return c;
 }
@@ -176,7 +183,7 @@ function buildRankingCsv() {
     const cols = [r.rank, csvCell(r.user, true), csvPin(r.pin), r.totalPoints, r.hitCount];
     RACES.forEach(n => {
       const v = r.votes[n];
-      cols.push(csvCell(v ? v.bet : '-'));
+      cols.push(csvCell(v ? v.bets.map(b => `${b.bet}×${b.units}`).join(' / ') : '-'));
       cols.push(csvCell(v && v.settled ? (v.isHit ? `的中(+${v.points}pt)` : '不的中') : '未確定'));
     });
     c += cols.join(',') + '\r\n';
@@ -509,7 +516,7 @@ function buildPayload(conn, rankings) {
       ? { user: u.user, k: u.key, rank: u.rank, totalPoints: u.totalPoints, hitCount: u.hitCount, votes: u.votes }
       : { user: conn.userName, k: conn.userKey, rank: null, totalPoints: 0, hitCount: 0, votes: { 5: null, 6: null, 7: null } };
   }
-  return { type: 'state_update', state: currentState, me };
+  return { type: 'state_update', state: currentState, me, rules: { budget: POINTS_PER_RACE, unit: BET_UNIT } };
 }
 
 function safeSend(conn, payload) {
@@ -555,17 +562,29 @@ async function handleClientMessage(data, conn) {
 
   if (data.type === 'vote') {
     setConnUser(conn, data.user, data.pin);
-    const result = recordVote(data.user, data.pin, data.race, data.first, data.second, { confirmSame: data.confirmSame === true });
+    const result = recordVote(data.user, data.pin, data.race, data.first, data.second, data.units, {
+      confirmSame: data.confirmSame === true,
+      vid: typeof data.vid === 'string' ? data.vid.slice(0, 40) : ''
+    });
     safeSend(conn, Object.assign({ type: 'vote_result' }, result));
-    if (result.success) {
-      showToast(`📩 ${result.vote.user} さんから第${result.vote.race}Rの投票（${result.vote.bet}）を受信！`);
+    if (result.duplicate) {
+      sendState(conn, computeRankings());
+    } else if (result.success) {
+      showToast(`📩 ${result.vote.user} さんから第${result.vote.race}Rの投票（${result.vote.bet} ${result.vote.units * BET_UNIT}pt）を受信！`);
       await afterChange();
     }
   }
 }
 
 // ---------- 投票登録 ----------
-function recordVote(user, pinRaw, race, first, second, opts = {}) {
+// 1レースにつき POINTS_PER_RACE(500pt) を持ち、BET_UNIT(100pt)単位で何回でも投票できる
+function usedUnits(race, key) {
+  return votesList
+    .filter(v => v.race === race && userKey(v.user, v.pin || '') === key)
+    .reduce((sum, v) => sum + unitsOf(v), 0);
+}
+
+function recordVote(user, pinRaw, race, first, second, unitsRaw, opts = {}) {
   if (typeof user !== 'string' || !cleanName(user)) {
     return { success: false, error: 'ニックネームを入力してください。' };
   }
@@ -578,10 +597,27 @@ function recordVote(user, pinRaw, race, first, second, opts = {}) {
   const r = parseInt(race, 10);
   const f = parseInt(first, 10);
   const s = parseInt(second, 10);
+  const u = Number(unitsRaw);
+
+  // 通信の再送などで同じ投票が二重登録されないようにする
+  if (opts.vid) {
+    const dup = votesList.find(v => v.vid === opts.vid);
+    if (dup) {
+      return {
+        success: true,
+        duplicate: true,
+        message: `第${dup.race}レースの予想【${dup.bet}】${unitsOf(dup) * BET_UNIT}ptは受付済みです。`,
+        vote: { time: dup.time, race: dup.race, user: dup.user, first: dup.first, second: dup.second, bet: dup.bet, units: unitsOf(dup), alreadyCounted: true }
+      };
+    }
+  }
 
   if (!RACES.includes(r)) return { success: false, error: '無効なレースです。' };
   if (![1, 2, 3, 4, 5, 6].includes(f) || ![1, 2, 3, 4, 5, 6].includes(s) || f === s) {
     return { success: false, error: '1着・2着を正しく選択してください。' };
+  }
+  if (!Number.isInteger(u) || u < 1 || u > MAX_UNITS) {
+    return { success: false, error: `投票ポイントは${BET_UNIT}pt単位（${BET_UNIT}〜${POINTS_PER_RACE}pt）で指定してください。` };
   }
   if (currentState.currentRace !== r) {
     return { success: false, error: `現在は第${currentState.currentRace}レースの進行中です。` };
@@ -589,8 +625,13 @@ function recordVote(user, pinRaw, race, first, second, opts = {}) {
   if (!currentState.isOpen) {
     return { success: false, error: `第${r}レースの投票受付はすでに締め切られました。` };
   }
-  if (votesList.some(v => v.race === r && userKey(v.user, v.pin || '') === key)) {
-    return { success: false, error: `「${cleanUser}」さん（PASS番号が同じ）はすでに第${r}Rに投票済みです（1人1回まで）。` };
+
+  const remain = MAX_UNITS - usedUnits(r, key);
+  if (remain <= 0) {
+    return { success: false, error: `「${cleanUser}」さんは第${r}Rの持ちポイント${POINTS_PER_RACE}ptをすべて使い切っています。` };
+  }
+  if (u > remain) {
+    return { success: false, error: `第${r}Rの残りポイントは${remain * BET_UNIT}ptです。${u * BET_UNIT}ptは投票できません。` };
   }
 
   // 同じ名前でPASS番号が違う人がすでにいる場合は、入力ミスの可能性があるので確認する
@@ -606,15 +647,20 @@ function recordVote(user, pinRaw, race, first, second, opts = {}) {
 
   const bet = `${f}-${s}`;
   const nowStr = formatDateTime();
-  votesList.push({ time: nowStr, race: r, user: cleanUser, pin, first: f, second: s, bet });
+  const entry = { time: nowStr, race: r, user: cleanUser, pin, first: f, second: s, bet, units: u };
+  if (opts.vid) entry.vid = opts.vid;
+  votesList.push(entry);
+  const left = (remain - u) * BET_UNIT;
   return {
     success: true,
-    message: `第${r}レースの予想【${bet}】を受け付けました！`,
-    vote: { time: nowStr, race: r, user: cleanUser, first: f, second: s, bet }
+    message: `第${r}レースの予想【${bet}】${u * BET_UNIT}ptを受け付けました！（残り${left}pt）`,
+    vote: { time: nowStr, race: r, user: cleanUser, first: f, second: s, bet, units: u }
   };
 }
 
 // ---------- ランキング ----------
+// 的中時のポイント ＝ 2連単の払戻金(100円あたり) × 口数。
+// 例：払戻 1,450円の目に 300pt(3口) → 4,350pt
 function computeRankings() {
   const userMap = {};
   for (const v of votesList) {
@@ -631,27 +677,37 @@ function computeRankings() {
         firstVoteTime: v.time
       };
     }
-    userMap[key].votes[v.race] = { first: v.first, second: v.second, bet: v.bet, time: v.time };
+    const u = userMap[key];
+    const units = unitsOf(v);
+    let rv = u.votes[v.race];
+    if (!rv) rv = u.votes[v.race] = { bets: [], units: 0, points: 0, settled: false, isHit: false };
+    rv.units += units;
+    // 同じ買い目への投票は1行にまとめる
+    const same = rv.bets.find(b => b.first === v.first && b.second === v.second);
+    if (same) {
+      same.units += units;
+    } else {
+      rv.bets.push({ first: v.first, second: v.second, bet: v.bet, units, time: v.time, settled: false, isHit: false, points: 0 });
+    }
   }
 
   RACES.forEach(r => {
     const res = currentState.results[r];
     for (const u of Object.values(userMap)) {
-      const uVote = u.votes[r];
-      if (!uVote) continue;
+      const rv = u.votes[r];
+      if (!rv) continue;
       if (res && res.settled) {
-        const isHit = uVote.first === res.first && uVote.second === res.second;
-        uVote.settled = true;
-        uVote.isHit = isHit;
-        uVote.points = isHit ? parseInt(res.payout, 10) : 0;
-        if (isHit) {
-          u.totalPoints += uVote.points;
-          u.hitCount += 1;
-        }
-      } else {
-        uVote.settled = false;
-        uVote.isHit = false;
-        uVote.points = 0;
+        const payout = parseInt(res.payout, 10) || 0;
+        rv.settled = true;
+        rv.bets.forEach(b => {
+          b.settled = true;
+          b.isHit = b.first === res.first && b.second === res.second;
+          b.points = b.isHit ? payout * b.units : 0;
+          rv.points += b.points;
+          if (b.isHit) rv.isHit = true;
+        });
+        u.totalPoints += rv.points;
+        if (rv.isHit) u.hitCount += 1; // 的中したレース数
       }
     }
   });
@@ -684,8 +740,10 @@ function updateAllUI() {
   raceTabBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.race, 10) === currentSelectedRace));
   settleTargetTitle.textContent = `第${currentSelectedRace}レース 結果確定・払戻金登録`;
 
-  const count = votesList.filter(v => v.race === currentSelectedRace).length;
-  voteCountText.textContent = `第${currentSelectedRace}R 投票数: ${count} 人`;
+  const raceVotes = votesList.filter(v => v.race === currentSelectedRace);
+  const voters = new Set(raceVotes.map(v => userKey(v.user, v.pin || ''))).size;
+  const totalPt = raceVotes.reduce((sum, v) => sum + unitsOf(v) * BET_UNIT, 0);
+  voteCountText.textContent = `第${currentSelectedRace}R 投票者: ${voters} 人 / ${raceVotes.length} 件（計 ${totalPt.toLocaleString()}pt）`;
 
   if (currentState.isOpen) {
     currentStatusText.textContent = `🟢 第${currentState.currentRace}R 投票受付中`;
@@ -742,9 +800,16 @@ function renderRankingTable(rankings) {
     const raceCell = n => {
       const v = r.votes[n];
       if (!v) return '<span style="color: #64748b;">-</span>';
-      if (!v.settled) return `<span style="font-weight: 700;">${escapeHtml(v.bet)}</span>`;
-      if (v.isHit) return `<span style="color: #10b981; font-weight: 800;">🎯 ${escapeHtml(v.bet)} (+${v.points.toLocaleString()}pt)</span>`;
-      return `<span style="color: #94a3b8;">${escapeHtml(v.bet)} (0pt)</span>`;
+      const lines = v.bets.map(b => {
+        const t = `${escapeHtml(b.bet)}<span style="font-size: 0.8rem; color: #64748b;"> ×${b.units * BET_UNIT}pt</span>`;
+        if (!v.settled) return `<div style="font-weight: 700;">${t}</div>`;
+        if (b.isHit) return `<div style="color: #10b981; font-weight: 800;">🎯 ${t} (+${b.points.toLocaleString()}pt)</div>`;
+        return `<div style="color: #94a3b8;">${t}</div>`;
+      }).join('');
+      const foot = v.settled
+        ? `<div style="font-size: 0.8rem; color: #38bdf8; font-weight: 700;">計 ${v.points.toLocaleString()}pt</div>`
+        : `<div style="font-size: 0.75rem; color: #94a3b8;">使用 ${v.units * BET_UNIT}/${POINTS_PER_RACE}pt</div>`;
+      return lines + foot;
     };
 
     html += `
@@ -794,11 +859,11 @@ settleBtn.addEventListener('click', async () => {
     return;
   }
   if (isNaN(payout) || payout < 100) {
-    alert('2連単の払戻金額（円）を正しく入力してください（例: 1450）。');
+    alert('2連単の払戻金額（100円あたり・円）を正しく入力してください（例: 1450）。');
     settlePayout.focus();
     return;
   }
-  const msg = `第${currentSelectedRace}レースの結果を確定しますか？\n\n出目: ${first} - ${second}\n払戻金: ${payout.toLocaleString()} 円\n\n※的中者に ${payout.toLocaleString()}pt が付与され、CSVが自動更新されます。`;
+  const msg = `第${currentSelectedRace}レースの結果を確定しますか？\n\n出目: ${first} - ${second}\n払戻金: ${payout.toLocaleString()} 円\n\n※的中者には「${payout.toLocaleString()}pt × 投票口数（100pt＝1口）」が付与され、CSVが自動更新されます。`;
   if (!confirm(msg)) return;
 
   currentState.results[currentSelectedRace] = { first, second, payout, settled: true, settledAt: formatDateTime() };
@@ -811,14 +876,16 @@ proxyVoteBtn.addEventListener('click', async () => {
   const pin = proxyPin.value.trim();
   const first = parseInt(proxyFirst.value, 10);
   const second = parseInt(proxySecond.value, 10);
-  let res = recordVote(user, pin, currentSelectedRace, first, second);
+  const units = parseInt(proxyUnits.value, 10);
+  let res = recordVote(user, pin, currentSelectedRace, first, second, units);
   if (res.needConfirm && confirm(`${res.error}\n\n別の人として登録しますか？（PASS番号の入力ミスなら［キャンセル］）`)) {
-    res = recordVote(user, pin, currentSelectedRace, first, second, { confirmSame: true });
+    res = recordVote(user, pin, currentSelectedRace, first, second, units, { confirmSame: true });
   }
   if (res.success) {
-    showToast(`✅ ${res.vote.user} さんの第${currentSelectedRace}R予想 【 ${first}-${second} 】 を登録しました`);
+    showToast(`✅ ${res.vote.user} さんの第${currentSelectedRace}R予想 【 ${first}-${second} 】 ${units * BET_UNIT}pt を登録しました`);
     proxyUser.value = '';
     proxyPin.value = '';
+    proxyUnits.value = '1';
     await afterChange();
   } else {
     alert(`エラー: ${res.error}`);

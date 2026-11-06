@@ -538,3 +538,118 @@ body {
 .btn-danger:hover {
   background: #fecaca;
 }
+
+
+/* --- 投票ポイント（100pt単位）--- */
+.stake-box {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.stake-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin: 6px 0 10px;
+}
+
+.stake-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid #94a3b8;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+  transition: all 0.15s ease;
+}
+
+.stake-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.stake-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.stake-value {
+  min-width: 120px;
+  text-align: center;
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.stake-unit {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.stake-budget {
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.stake-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stake-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #ffd700);
+  transition: width 0.3s ease;
+}
+
+.my-bets-box {
+  margin-top: 14px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.my-bets-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0369a1;
+  margin-bottom: 6px;
+}
+
+.my-bet-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px dashed #bae6fd;
+  font-size: 0.95rem;
+}
+
+.my-bet-row:last-child {
+  border-bottom: none;
+}
+
+.history-bet-line {
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.history-bet-line .pt {
+  font-size: 0.75rem;
+  color: #64748b;
+}

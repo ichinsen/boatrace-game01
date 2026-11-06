@@ -13,6 +13,8 @@ let lastVote = null; // 直近に送った投票（同名確認のあと再送�
 
 let selectedFirst = null;
 let selectedSecond = null;
+let selectedUnits = 1; // 今回投票する口数（1口=100pt）
+let rules = { budget: 500, unit: 100 }; // 主催者から届く（1レースの持ちポイントと投票単位）
 let stateReceived = false;
 
 let currentState = {
@@ -42,6 +44,14 @@ const previewFirst = $('previewFirst');
 const previewSecond = $('previewSecond');
 const previewText = $('previewText');
 const submitVoteBtn = $('submitVoteBtn');
+const unitMinus = $('unitMinus');
+const unitPlus = $('unitPlus');
+const stakeValue = $('stakeValue');
+const budgetText = $('budgetText');
+const budgetBar = $('budgetBar');
+const myBetsBox = $('myBetsBox');
+const myBetsTitle = $('myBetsTitle');
+const myBetsList = $('myBetsList');
 const voteMessage = $('voteMessage');
 const myTotalPoints = $('myTotalPoints');
 const historyTableBody = $('historyTableBody');
@@ -80,6 +90,18 @@ function meMatches() {
 function getMyVotes() {
   return meMatches() && me.votes ? me.votes : {};
 }
+const maxUnits = () => Math.max(1, Math.floor(rules.budget / rules.unit));
+// 指定レースで使った口数／残り口数
+function usedUnits(r) {
+  const v = getMyVotes()[r];
+  return v && Number(v.units) ? Number(v.units) : 0;
+}
+function remainingUnits(r) {
+  return Math.max(0, maxUnits() - usedUnits(r));
+}
+const fmtPt = units => (units * rules.unit).toLocaleString();
+// 通信再送による二重登録を防ぐための投票ID
+const newVoteId = () => 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 function send(obj) {
   try {
@@ -161,6 +183,46 @@ secondGrid.querySelectorAll('.boat-btn').forEach(btn => {
   });
 });
 
+unitMinus.addEventListener('click', () => {
+  if (selectedUnits > 1) selectedUnits--;
+  updateSelectionUI();
+});
+unitPlus.addEventListener('click', () => {
+  if (selectedUnits < remainingUnits(currentState.currentRace)) selectedUnits++;
+  updateSelectionUI();
+});
+
+// 持ちポイント・投票済み一覧の表示を更新
+function updateBudgetUI() {
+  const r = currentState.currentRace;
+  const remain = remainingUnits(r);
+  if (remain > 0 && selectedUnits > remain) selectedUnits = remain;
+  if (selectedUnits < 1) selectedUnits = 1;
+
+  stakeValue.textContent = remain > 0 ? fmtPt(selectedUnits) : '0';
+  unitMinus.disabled = remain === 0 || selectedUnits <= 1;
+  unitPlus.disabled = remain === 0 || selectedUnits >= remain;
+  budgetText.textContent = `第${r}Rの持ちポイント：残り ${fmtPt(remain)} / ${rules.budget.toLocaleString()} pt`;
+  budgetBar.style.width = Math.round((remain / maxUnits()) * 100) + '%';
+
+  const v = getMyVotes()[r];
+  if (v && v.bets && v.bets.length) {
+    myBetsBox.style.display = 'block';
+    myBetsTitle.textContent = `第${r}Rのあなたの投票（使用 ${fmtPt(usedUnits(r))}pt）`;
+    myBetsList.innerHTML = v.bets.map(b => {
+      const bt = String(b.bet).split('-');
+      return `<div class="my-bet-row">
+        <span><span class="boat-badge boat-${esc(bt[0])}" style="width:30px;height:30px;font-size:1rem;">${esc(bt[0])}</span> ー
+        <span class="boat-badge boat-${esc(bt[1])}" style="width:30px;height:30px;font-size:1rem;">${esc(bt[1])}</span></span>
+        <b>${fmtPt(b.units)} pt</b>
+      </div>`;
+    }).join('');
+  } else {
+    myBetsBox.style.display = 'none';
+    myBetsList.innerHTML = '';
+  }
+}
+
 function updateSelectionUI() {
   firstGrid.querySelectorAll('.boat-btn').forEach(btn => {
     btn.classList.toggle('selected', parseInt(btn.dataset.boat, 10) === selectedFirst);
@@ -187,7 +249,7 @@ function updateSelectionUI() {
   }
 
   if (selectedFirst && selectedSecond) {
-    previewText.textContent = `2連単 【 ${selectedFirst} - ${selectedSecond} 】`;
+    previewText.textContent = `2連単 【 ${selectedFirst} - ${selectedSecond} 】 ${fmtPt(selectedUnits)}pt`;
     previewText.style.color = '#0284c7';
   } else if (selectedFirst) {
     previewText.textContent = '2着の艇番を選択してください';
@@ -203,7 +265,8 @@ function updateSubmitButtonState() {
   const r = currentState.currentRace;
   const user = currentUserName();
   const pin = currentPin();
-  const voted = getMyVotes()[r];
+  const remain = remainingUnits(r);
+  updateBudgetUI();
 
   if (!hostConn || !hostConn.open || !stateReceived) {
     submitVoteBtn.disabled = true;
@@ -217,21 +280,21 @@ function updateSubmitButtonState() {
     voteMessage.textContent = `第${r}レースの投票は現在受け付けていません。`;
     return;
   }
-  if (voted) {
-    submitVoteBtn.disabled = true;
-    submitVoteBtn.innerHTML = `<span>✅</span> 投票済み 【 ${esc(voted.bet)} 】`;
-    voteMessage.textContent = `第${r}レースは投票済みです（1人1回まで）。レース観戦をお楽しみください！`;
-    return;
-  }
   if (!user || !pin) {
     submitVoteBtn.disabled = true;
     submitVoteBtn.innerHTML = '<span>👤</span> ニックネームとPASS番号を入力してください';
     voteMessage.textContent = '投票するには、ニックネームとPASS番号（数字4桁）の登録が必要です。';
     return;
   }
+  if (remain <= 0) {
+    submitVoteBtn.disabled = true;
+    submitVoteBtn.innerHTML = '<span>✅</span> 持ちポイントを使い切りました';
+    voteMessage.textContent = `第${r}Rの持ちポイント${rules.budget.toLocaleString()}ptはすべて投票済みです。レース観戦をお楽しみください！`;
+    return;
+  }
   if (selectedFirst && selectedSecond) {
     submitVoteBtn.disabled = false;
-    submitVoteBtn.innerHTML = `<span>📝</span> 第${r}R 【 ${selectedFirst} - ${selectedSecond} 】で投票！`;
+    submitVoteBtn.innerHTML = `<span>📝</span> 第${r}R 【 ${selectedFirst} - ${selectedSecond} 】${fmtPt(selectedUnits)}ptで投票！`;
     voteMessage.textContent = '';
   } else {
     submitVoteBtn.disabled = true;
@@ -258,7 +321,13 @@ submitVoteBtn.addEventListener('click', () => {
     return;
   }
   const race = currentState.currentRace;
-  const msg = `【投票の最終確認】\nニックネーム: ${user}\nPASS番号: ${currentPin()}\n対象レース: 第${race}レース\n予想: 2連単 ${selectedFirst} - ${selectedSecond}\n\n※1レースに投票できるのは1人1回です。投票しますか？`;
+  const remain = remainingUnits(race);
+  if (remain <= 0) {
+    showToast('⚠️ このレースの持ちポイントは使い切っています');
+    return;
+  }
+  const units = Math.min(selectedUnits, remain);
+  const msg = `【投票の最終確認】\nニックネーム: ${user}\nPASS番号: ${currentPin()}\n対象レース: 第${race}レース\n予想: 2連単 ${selectedFirst} - ${selectedSecond}\n投票ポイント: ${fmtPt(units)}pt\n\n※このレースの持ちポイントは残り ${fmtPt(remain)}pt です。投票後は取り消せません。投票しますか？`;
   if (!confirm(msg)) return;
 
   localStorage.setItem('boatrace_user', user);
@@ -266,7 +335,7 @@ submitVoteBtn.addEventListener('click', () => {
   submitVoteBtn.disabled = true;
   submitVoteBtn.innerHTML = '<span>⏳</span> 投票送信中...';
 
-  lastVote = { type: 'vote', user, pin: currentPin(), race, first: selectedFirst, second: selectedSecond };
+  lastVote = { type: 'vote', user, pin: currentPin(), race, first: selectedFirst, second: selectedSecond, units, vid: newVoteId() };
   const ok = send(lastVote);
   clearTimeout(voteTimer);
   if (!ok) {
@@ -291,22 +360,26 @@ function renderHistoryTable() {
   [5, 6, 7].forEach(r => {
     const v = votes[r];
     const res = currentState.results[r];
+    const bets = v && v.bets ? v.bets : [];
 
-    const betDisplay = v ? `<b>${esc(v.bet)}</b>` : '<span class="badge-waiting">未投票</span>';
+    const betDisplay = bets.length
+      ? bets.map(b => `<div class="history-bet-line"><b>${esc(b.bet)}</b> <span class="pt">${fmtPt(b.units)}pt</span></div>`).join('')
+      : '<span class="badge-waiting">未投票</span>';
     let resultDisplay = '<span class="badge-waiting">未確定</span>';
     let pointsDisplay = '-';
 
     if (res && res.settled) {
       const payout = parseInt(res.payout, 10) || 0;
       resultDisplay = `<b>${esc(res.first)}-${esc(res.second)}</b> (${payout.toLocaleString()}円)`;
-      if (v) {
-        pointsDisplay = (v.first === res.first && v.second === res.second)
-          ? `<span class="badge-hit">🎯 的中! +${payout.toLocaleString()}pt</span>`
+      if (bets.length) {
+        const total = Number(v.points) || 0;
+        pointsDisplay = v.isHit
+          ? `<span class="badge-hit">🎯 的中! +${total.toLocaleString()}pt</span>`
           : '<span class="badge-miss">不的中 (0pt)</span>';
       } else {
         pointsDisplay = '<span class="badge-miss">未投票</span>';
       }
-    } else if (v) {
+    } else if (bets.length) {
       pointsDisplay = '<span class="badge-waiting">結果待ち</span>';
     }
 
@@ -427,6 +500,9 @@ function handleHostMessage(data) {
   if (data.type === 'state_update' && data.state) {
     currentState = data.state;
     me = data.me || null;
+    if (data.rules && Number(data.rules.budget) > 0 && Number(data.rules.unit) > 0) {
+      rules = { budget: Number(data.rules.budget), unit: Number(data.rules.unit) };
+    }
     stateReceived = true;
 
     currentRaceBadge.textContent = `第 ${currentState.currentRace} レース`;
@@ -448,12 +524,21 @@ function handleHostMessage(data) {
       showToast(`🎉 ${data.message}`, 4000);
       const v = data.vote;
       // 主催者からの最新データが届くまでの間、手元で反映
-      if (!meMatches()) {
-        me = { user: v.user, k: myKey(), rank: null, totalPoints: 0, hitCount: 0, votes: { 5: null, 6: null, 7: null } };
+      if (!v.alreadyCounted) {
+        if (!meMatches()) {
+          me = { user: v.user, k: myKey(), rank: null, totalPoints: 0, hitCount: 0, votes: { 5: null, 6: null, 7: null } };
+        }
+        const rv = me.votes[v.race] || (me.votes[v.race] = { bets: [], units: 0, points: 0, settled: false, isHit: false });
+        const units = Number(v.units) || 1;
+        rv.units = (Number(rv.units) || 0) + units;
+        const same = rv.bets.find(b => b.first === v.first && b.second === v.second);
+        if (same) same.units += units;
+        else rv.bets.push({ first: v.first, second: v.second, bet: v.bet, units, settled: false, isHit: false, points: 0 });
       }
-      me.votes[v.race] = { first: v.first, second: v.second, bet: v.bet, settled: false, isHit: false, points: 0 };
       selectedFirst = null;
       selectedSecond = null;
+      selectedUnits = 1;
+      lastVote = null;
       updateSelectionUI();
       renderHistoryTable();
     } else if (data.needConfirm && lastVote) {
