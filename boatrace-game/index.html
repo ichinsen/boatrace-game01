@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ボートレース 2連単予想ゲーム</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="container">
+    <!-- ヘッダー（管理画面へのリンクは一切ありません） -->
+    <header class="app-header">
+      <h1 class="app-title">🚤 ボートレース予想ゲーム</h1>
+      <p class="app-subtitle">2連単を当てて高配当ポイントを掴み取れ！</p>
+    </header>
+
+    <!-- 接続状態バナー -->
+    <div id="connectionBanner" style="background: rgba(15, 23, 42, 0.9); border: 1px solid #1e3a5f; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="font-size: 0.85rem; color: #cbd5e1;" id="connText">
+        <span>📡</span> 接続状態:
+      </div>
+      <div>
+        <span id="connBadge" class="status-badge closed" style="font-size: 0.75rem; padding: 4px 10px;">
+          接続待機中...
+        </span>
+      </div>
+    </div>
+
+    <!-- ホスト未指定時の手動入力（QRコード外から開いた場合の救済用） -->
+    <div id="manualHostCard" class="card" style="display: none; border-left: 4px solid #f59e0b;">
+      <div style="font-size: 0.9rem; font-weight: 700; color: #b45309; margin-bottom: 8px;">
+        ⚠️ 主催者のルームキーを入力してください
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="manualHostInput" class="form-input" placeholder="例: boatrace-abc12">
+        <button id="manualConnectBtn" class="btn-secondary" style="white-space: nowrap;">接続</button>
+      </div>
+      <div style="font-size: 0.75rem; color: #64748b; margin-top: 6px;">
+        ※主催者画面のQRコードを読み取ると自動で接続されます。
+      </div>
+    </div>
+
+    <!-- 参加者ニックネーム入力カード -->
+    <div class="card">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="userName">👤 参加者ニックネーム</label>
+        <input type="text" id="userName" class="form-input" placeholder="名前またはニックネームを入力" maxlength="20">
+        <label class="form-label" for="userPin" style="margin-top: 12px;">🔢 PASS番号（数字4桁）</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="userPin" class="form-input" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="例: 1234" autocomplete="off">
+          <button id="saveUserBtn" class="btn-secondary" style="white-space: nowrap;">登録</button>
+        </div>
+        <div style="font-size: 0.75rem; color: #64748b; margin-top: 6px;">
+          同じ名前の人と区別するための番号です。忘れないようにしてください（履歴の確認や、スマホを変えたときにも使います）。
+        </div>
+      </div>
+    </div>
+
+    <!-- レース状況バナー -->
+    <div class="race-status-banner">
+      <div>
+        <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 700;">TARGET RACE</div>
+        <div class="race-number-badge" id="currentRaceBadge">第 -- レース</div>
+      </div>
+      <div>
+        <span class="status-badge closed" id="raceStatusBadge">読込中...</span>
+      </div>
+    </div>
+
+    <!-- 2連単 予想マークシート -->
+    <div class="card" id="bettingCard">
+      <h2 class="card-title">🎯 2連単 予想マークシート</h2>
+
+      <!-- 1着予想 -->
+      <div style="margin-bottom: 16px;">
+        <div class="form-label">🥇 1着の艇番を選択</div>
+        <div class="boat-grid" id="firstBoatGrid">
+          <button type="button" class="boat-btn boat-1" data-boat="1">1<span class="label">白</span></button>
+          <button type="button" class="boat-btn boat-2" data-boat="2">2<span class="label">黒</span></button>
+          <button type="button" class="boat-btn boat-3" data-boat="3">3<span class="label">赤</span></button>
+          <button type="button" class="boat-btn boat-4" data-boat="4">4<span class="label">青</span></button>
+          <button type="button" class="boat-btn boat-5" data-boat="5">5<span class="label">黄</span></button>
+          <button type="button" class="boat-btn boat-6" data-boat="6">6<span class="label">緑</span></button>
+        </div>
+      </div>
+
+      <!-- 2着予想 -->
+      <div style="margin-bottom: 18px;">
+        <div class="form-label">🥈 2着の艇番を選択</div>
+        <div class="boat-grid" id="secondBoatGrid">
+          <button type="button" class="boat-btn boat-1" data-boat="1">1<span class="label">白</span></button>
+          <button type="button" class="boat-btn boat-2" data-boat="2">2<span class="label">黒</span></button>
+          <button type="button" class="boat-btn boat-3" data-boat="3">3<span class="label">赤</span></button>
+          <button type="button" class="boat-btn boat-4" data-boat="4">4<span class="label">青</span></button>
+          <button type="button" class="boat-btn boat-5" data-boat="5">5<span class="label">黄</span></button>
+          <button type="button" class="boat-btn boat-6" data-boat="6">6<span class="label">緑</span></button>
+        </div>
+      </div>
+
+      <!-- 買い目プレビュー -->
+      <div class="preview-box">
+        <div class="preview-label">選択中の買い目</div>
+        <div class="preview-combination">
+          <span id="previewFirst" class="boat-badge boat-1" style="visibility: hidden;">1</span>
+          <span class="preview-hyphen">ー</span>
+          <span id="previewSecond" class="boat-badge boat-2" style="visibility: hidden;">2</span>
+        </div>
+        <div id="previewText" style="font-size: 0.9rem; font-weight: 700; margin-top: 6px; color: #475569;">
+          艇番を選んでください
+        </div>
+      </div>
+
+      <!-- 投票ボタン -->
+      <button id="submitVoteBtn" class="btn-primary" disabled>
+        <span>📝</span> この内容で投票する！
+      </button>
+
+      <div id="voteMessage" style="margin-top: 10px; font-size: 0.85rem; text-align: center; color: #ef4444; font-weight: 600;"></div>
+    </div>
+
+    <!-- 合計ポイント表示カード -->
+    <div class="total-points-card">
+      <div>
+        <div style="font-size: 0.85rem; color: #93c5fd; font-weight: 700;">TOTAL SCORE</div>
+        <div style="font-size: 1.1rem; font-weight: 800;">現在の獲得ポイント</div>
+      </div>
+      <div>
+        <span class="points-val" id="myTotalPoints">0</span>
+        <span style="font-size: 1.1rem; font-weight: 700; color: #ffd700;"> pt</span>
+      </div>
+    </div>
+
+    <!-- 自分の予想・結果履歴カード -->
+    <div class="card">
+      <h2 class="card-title">📋 あなたの投票履歴 & 結果</h2>
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>レース</th>
+            <th>予想買い目</th>
+            <th>確定結果</th>
+            <th>獲得ポイント</th>
+          </tr>
+        </thead>
+        <tbody id="historyTableBody">
+          <tr>
+            <td colspan="4" style="color: #94a3b8;">読み込み中...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="text-align: center; margin-top: 24px; color: #94a3b8; font-size: 0.75rem;">
+      ボートレース予想ゲームシステム © 2026
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="peerjs.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>【主催者・管理】ボートレース予想ゲーム ダッシュボード</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    body {
+      background: #091322;
+      color: #f1f5f9;
+      padding: 20px;
+    }
+    .admin-card {
+      background: #152238;
+      border: 1px solid #1e3a5f;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+      margin-bottom: 20px;
+    }
+    .admin-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #38bdf8;
+      border-bottom: 1px solid #1e3a5f;
+      padding-bottom: 10px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .race-tab-btn {
+      flex: 1;
+      padding: 12px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      border: 2px solid #334155;
+      background: #0f172a;
+      color: #94a3b8;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .race-tab-btn.active {
+      background: #0284c7;
+      color: white;
+      border-color: #38bdf8;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+    }
+    .btn-toggle-open {
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 800;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-toggle-open.open {
+      background: #ef4444;
+      color: white;
+    }
+    .btn-toggle-open.closed {
+      background: #10b981;
+      color: white;
+    }
+    .settle-input {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: white;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .fs-folder-box {
+      background: #0f172a;
+      border: 1px solid #1e3a5f;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .status-pill {
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-pill.connected {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid #10b981;
+    }
+    .status-pill.waiting {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid #f59e0b;
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-container">
+    <!-- ヘッダー -->
+    <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <h1 style="font-size: 1.7rem; font-weight: 900; color: #ffd700; display: flex; align-items: center; gap: 10px;">
+          🚤 主催者・集計ダッシュボード
+        </h1>
+        <p style="color: #94a3b8; font-size: 0.85rem;">
+          サーバー不要・ブラウザ単体で動作｜インターネット接続が必要（P2P通信でスマホと同期）
+        </p>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <span id="wakePill" class="status-pill waiting" title="管理PCの画面が暗くなったりスリープすると、参加者が切断されます">🔆 スリープ防止: -</span>
+        <span id="p2pStatusPill" class="status-pill waiting">
+          <span>⏳</span> 通信接続中...
+        </span>
+        <button id="adminResetBtn" class="btn-danger" style="font-size: 0.85rem;">
+          ⚠️ データ初期化
+        </button>
+      </div>
+    </header>
+
+    <!-- ローカルCSVフォルダ連携エリア (File System Access API) -->
+    <div class="fs-folder-box">
+      <div>
+        <span style="font-size: 0.9rem; font-weight: 800; color: #38bdf8;">📁 ローカルCSV自動保存設定:</span>
+        <span id="folderStatusText" style="font-size: 0.85rem; color: #cbd5e1; margin-left: 8px;">
+          未設定（ボタンを押して data フォルダを選択すると自動保存されます）
+        </span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="selectFolderBtn" class="btn-secondary" style="background: #0284c7; color: white; border: none; font-size: 0.85rem; padding: 6px 12px;">
+          📁 data フォルダを選択
+        </button>
+        <button id="resumeFolderBtn" class="btn-secondary" style="display: none; background: #f59e0b; color: #111; border: none; font-size: 0.85rem; padding: 6px 12px;">
+          🔁 フォルダ連携を再開
+        </button>
+        <button id="exportCsvBtn" class="btn-secondary" style="font-size: 0.85rem; padding: 6px 12px;">
+          📥 CSVを手動保存
+        </button>
+      </div>
+    </div>
+
+    <div class="admin-grid">
+      <!-- 参加用QRコードとURL -->
+      <div class="admin-card qr-section">
+        <h2 style="font-size: 1.15rem; font-weight: 800; color: #ffd700; margin-bottom: 4px;">
+          📲 参加者用 QRコード & 参加URL
+        </h2>
+        <p style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 12px;">
+          参加者のスマホカメラで下記QRコードを読み取ると投票画面が開きます
+        </p>
+        <div id="urlWarning" style="display: none; background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; border-radius: 8px; padding: 10px 12px; font-size: 0.8rem; text-align: left; margin-bottom: 12px; line-height: 1.5;"></div>
+        <div class="qr-box" id="qrContainer" style="min-height: 180px; display: flex; align-items: center; justify-content: center;">
+          <span style="color: #64748b; font-size: 0.85rem;">QRコード生成中...</span>
+        </div>
+        <div class="qr-url" id="joinUrlText" style="font-size: 0.85rem; margin-top: 8px;">接続キー取得中...</div>
+        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px;">
+          現在の接続端末数: <b id="connectedPeersCount" style="color: #38bdf8;">0</b> 台
+        </div>
+
+        <!-- 参加者URL設定（ホスティングURLを使う場合に変更可能） -->
+        <details id="urlSettings" style="margin-top: 14px; width: 100%; text-align: left; font-size: 0.75rem; color: #64748b;">
+          <summary style="cursor: pointer; color: #38bdf8;">⚙️ 参加者URLの設定（Web公開する場合）</summary>
+          <div style="margin-top: 8px; background: #0f172a; padding: 10px; border-radius: 6px;">
+            <label style="display: block; margin-bottom: 4px; color: #cbd5e1;">参加者用 index.html の公開URLベース:</label>
+            <div style="display: flex; gap: 6px;">
+              <input type="text" id="customBaseUrlInput" class="settle-input" placeholder="例: https://xxx.github.io/boatrace/index.html" style="font-size: 0.8rem; width: 100%;">
+              <button id="applyBaseUrlBtn" class="btn-secondary" style="font-size: 0.75rem; white-space: nowrap;">更新</button>
+            </div>
+            <p style="margin-top: 4px; color: #94a3b8;">※管理画面を公開URLで開いている場合は未設定でOK。このPC上（ファイル／localhost）で開いている場合は必須です。</p>
+            <button id="regenKeyBtn" class="btn-secondary" style="margin-top: 8px; font-size: 0.75rem;">🔑 ルームキーを再発行（QRが変わります）</button>
+          </div>
+        </details>
+      </div>
+
+      <!-- レース進行コントロール -->
+      <div class="admin-card">
+        <div class="admin-title">
+          <span>⚙️ レース進行コントロール</span>
+          <span id="currentStatusText" style="font-size: 0.85rem; padding: 4px 10px; border-radius: 20px; background: #334155;">-</span>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px; font-weight: 700;">
+            1. 進行対象レースを選択
+          </label>
+          <div style="display: flex; gap: 8px;">
+            <button class="race-tab-btn active" data-race="5">第 5 レース</button>
+            <button class="race-tab-btn" data-race="6">第 6 レース</button>
+            <button class="race-tab-btn" data-race="7">第 7 レース</button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;">
+          <div>
+            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">VOTE COUNT</div>
+            <div style="font-size: 1.15rem; font-weight: 800;" id="voteCountText">
+              投票数: 0 人
+            </div>
+          </div>
+          <button id="toggleOpenBtn" class="btn-toggle-open closed">
+            <span>🛑</span> 締切にする
+          </button>
+        </div>
+
+        <!-- 結果確定フォーム -->
+        <div style="background: #0f172a; padding: 16px; border-radius: 8px; border: 1px solid #1e3a5f; margin-bottom: 16px;">
+          <div style="font-size: 0.95rem; font-weight: 800; color: #ffd700; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+            <span>🏁</span> <span id="settleTargetTitle">第5レース 結果確定・払戻金登録</span>
+          </div>
+
+          <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;">
+            <div>
+              <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 3px;">1着 (号艇)</label>
+              <select id="settleFirst" class="settle-input" style="width: 100px;">
+                <option value="1">1号艇 (白)</option>
+                <option value="2">2号艇 (黒)</option>
+                <option value="3">3号艇 (赤)</option>
+                <option value="4">4号艇 (青)</option>
+                <option value="5">5号艇 (黄)</option>
+                <option value="6">6号艇 (緑)</option>
+              </select>
+            </div>
+
+            <div style="font-size: 1.4rem; color: #64748b; margin-top: 14px;">ー</div>
+
+            <div>
+              <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 3px;">2着 (号艇)</label>
+              <select id="settleSecond" class="settle-input" style="width: 100px;">
+                <option value="1">1号艇 (白)</option>
+                <option value="2" selected>2号艇 (黒)</option>
+                <option value="3">3号艇 (赤)</option>
+                <option value="4">4号艇 (青)</option>
+                <option value="5">5号艇 (黄)</option>
+                <option value="6">6号艇 (緑)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 3px;">2連単 払戻金 (円)</label>
+              <input type="number" id="settlePayout" class="settle-input" placeholder="例: 1450" min="100" step="10" style="width: 130px;">
+            </div>
+          </div>
+
+          <button id="settleBtn" class="btn-primary" style="padding: 12px; font-size: 1rem; width: 100%;">
+            🏆 結果を確定してポイントを集計する！
+          </button>
+        </div>
+
+        <!-- 主催者による代理投票フォーム -->
+        <div style="background: #0f172a; padding: 14px; border-radius: 8px; border: 1px dashed #334155;">
+          <div style="font-size: 0.85rem; font-weight: 700; color: #38bdf8; margin-bottom: 8px;">
+            ✏️ 主催者による代理投票（口頭受付用）
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <input type="text" id="proxyUser" class="settle-input" placeholder="参加者名" style="width: 110px;">
+            <input type="text" id="proxyPin" class="settle-input" placeholder="PASS4桁" maxlength="4" inputmode="numeric" style="width: 90px;">
+            <select id="proxyFirst" class="settle-input" style="width: 75px;">
+              <option value="1">1白</option>
+              <option value="2">2黒</option>
+              <option value="3">3赤</option>
+              <option value="4">4青</option>
+              <option value="5">5黄</option>
+              <option value="6">6緑</option>
+            </select>
+            <span style="color:#64748b;">-</span>
+            <select id="proxySecond" class="settle-input" style="width: 75px;">
+              <option value="1">1白</option>
+              <option value="2" selected>2黒</option>
+              <option value="3">3赤</option>
+              <option value="4">4青</option>
+              <option value="5">5黄</option>
+              <option value="6">6緑</option>
+            </select>
+            <button id="proxyVoteBtn" class="btn-secondary" style="padding: 10px 14px; font-weight: 700;">
+              投票登録
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- リアルタイム リーダーボード（プロジェクター投影） -->
+    <div class="admin-card">
+      <div class="admin-title">
+        <span>🏆 総合ランキング（リアルタイム集計）</span>
+        <div style="font-size: 0.85rem; color: #94a3b8; font-weight: normal;">
+          ※投票・結果確定のたびにCSVが自動更新されます（フォルダ連携時）
+        </div>
+      </div>
+
+      <!-- 確定レースサマリー -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px;">
+        <div style="background: #0f172a; padding: 12px; border-radius: 8px; border-left: 4px solid #38bdf8;" id="raceSummary5">
+          <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">第5レース</div>
+          <div style="font-size: 1rem; font-weight: 800; color: #ffd700;" class="res-text">未確定</div>
+        </div>
+        <div style="background: #0f172a; padding: 12px; border-radius: 8px; border-left: 4px solid #38bdf8;" id="raceSummary6">
+          <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">第6レース</div>
+          <div style="font-size: 1rem; font-weight: 800; color: #ffd700;" class="res-text">未確定</div>
+        </div>
+        <div style="background: #0f172a; padding: 12px; border-radius: 8px; border-left: 4px solid #38bdf8;" id="raceSummary7">
+          <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">第7レース</div>
+          <div style="font-size: 1rem; font-weight: 800; color: #ffd700;" class="res-text">未確定</div>
+        </div>
+      </div>
+
+      <!-- ランキング表 -->
+      <div style="overflow-x: auto;">
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th style="width: 60px;">順位</th>
+              <th style="text-align: left; padding-left: 16px;">参加者名</th>
+              <th style="width: 130px;">合計ポイント</th>
+              <th style="width: 80px;">的中数</th>
+              <th>5R 予想/結果</th>
+              <th>6R 予想/結果</th>
+              <th>7R 予想/結果</th>
+            </tr>
+          </thead>
+          <tbody id="rankingTableBody">
+            <tr>
+              <td colspan="7" style="color: #64748b; padding: 24px;">参加者の投票を待っています...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="qrcode-generator.js"></script>
+  <script src="peerjs.min.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
